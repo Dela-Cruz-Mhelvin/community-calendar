@@ -52,12 +52,17 @@ input,select{font:inherit;padding:8px;border:1.5px solid var(--line);border-radi
 .up li{list-style:none}
 .up ul{padding:0;margin:0}
 .pill{font-weight:800;min-width:3.2rem;display:inline-block}
+#alerts{display:grid;gap:8px;margin-bottom:12px}
+.alert{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;font-weight:600}
+.alert button{border:0;background:rgba(0,0,0,.18);color:inherit;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer}
 </style>
 </head>
 <body>
 <main>
 <h1>Community event calendar</h1>
 <p class="sub">Tap a date to see what’s happening, or add a new event.</p>
+<div id="alerts" aria-live="assertive"></div>
+<button class="btn" id="notifBtn" type="button" style="margin-bottom:14px">🔔 Turn on alarm and notifications</button>
 <div class="filters" id="filters" role="group" aria-label="Filter by category"></div>
 <div class="layout">
   <section class="card cal" aria-label="Month calendar">
@@ -82,6 +87,7 @@ input,select{font:inherit;padding:8px;border:1.5px solid var(--line);border-radi
           <label>Category<select id="fCat"></select></label>
           <label>Place<input id="fPlace" maxlength="50"></label>
         </div>
+        <label>Remind me<select id="fRem"><option value="">No reminder</option><option value="0">At event time</option><option value="10">10 minutes before</option><option value="60">1 hour before</option><option value="1440">1 day before</option></select></label>
         <button class="btn primary" type="submit">Add event</button>
       </form>
     </section>
@@ -144,7 +150,7 @@ function grid(){
 function evRow(e,del){
   var r=el("div","ev");r.style.setProperty("--c",color(e.cat));
   var t=el("div");t.appendChild(el("b",null,e.title));
-  t.appendChild(el("small",null,fmtTime(e.time)+(e.place?" at "+e.place:"")+" · "+CATS[e.cat][0]));
+  t.appendChild(el("small",null,fmtTime(e.time)+(e.place?" at "+e.place:"")+" · "+CATS[e.cat][0]+(e.rem!=null?" · 🔔 "+remText(e.rem):"")));
   r.appendChild(t);
   if(del){var x=el("button",null,"Remove");x.type="button";x.setAttribute("aria-label","Remove "+e.title);
     x.onclick=function(){events=events.filter(function(y){return y.id!==e.id});save();render()};r.appendChild(x)}
@@ -173,12 +179,33 @@ Object.keys(CATS).forEach(function(k){var o=el("option",null,CATS[k][0]);o.value
 $("fDate").value=sel;
 $("form").onsubmit=function(ev){
   ev.preventDefault();
-  var e={id:"e"+Date.now(),title:$("fTitle").value.trim(),date:$("fDate").value,time:$("fTime").value,cat:$("fCat").value,place:$("fPlace").value.trim()};
+  var e={id:"e"+Date.now(),title:$("fTitle").value.trim(),date:$("fDate").value,time:$("fTime").value,cat:$("fCat").value,place:$("fPlace").value.trim(),rem:$("fRem").value===""?null:+$("fRem").value};
   if(!e.title||!e.date)return;
   events.push(e);save();sel=e.date;view=new Date(e.date+"T00:00:00");view.setDate(1);
   $("fTitle").value="";$("fPlace").value="";$("fTime").value="";render();
 };
+function remText(m){return m===0?"at event time":m===10?"10 min before":m===60?"1 hour before":m===1440?"1 day before":m+" min before"}
+var ctx=null;
+function beep(){try{ctx=ctx||new(window.AudioContext||window.webkitAudioContext)();var n=0;(function b(){if(n++>=4)return;var o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=880;g.gain.value=.2;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.25);setTimeout(b,450)})()}catch(x){}}
+function fire(e){
+  var msg=e.title+(e.rem===0?" is starting now":" starts "+(e.rem===1440?"tomorrow":"in "+(e.rem===60?"1 hour":e.rem+" minutes")))+(e.place?" at "+e.place:"");
+  var a=el("div","alert");a.appendChild(el("span",null,"🔔 "+msg));
+  var d=el("button",null,"Dismiss");d.type="button";d.onclick=function(){a.remove()};a.appendChild(d);
+  $("alerts").appendChild(a);beep();
+  try{if("Notification" in window&&Notification.permission==="granted")new Notification("Event reminder",{body:msg})}catch(x){}
+}
+function check(){
+  var now=Date.now(),changed=false;
+  events.forEach(function(e){
+    if(e.rem==null||e.fired)return;
+    var at=new Date(e.date+"T"+(e.time||"08:00")+":00").getTime();
+    if(now>=at-e.rem*60000){if(now<=at+3600000)fire(e);e.fired=true;changed=true}
+  });
+  if(changed)save();
+}
+$("notifBtn").onclick=function(){beep();$("notifBtn").textContent="🔔 Alarm is on";try{if("Notification" in window&&Notification.permission==="default")Notification.requestPermission()}catch(x){}};
 render();
+check();setInterval(check,15000);
 })();
 </script>
 </body>
